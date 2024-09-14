@@ -6,15 +6,13 @@ This project demonstrates a basic depth map 3D animation, rendering videos using
 
 Here are some examples of the output videos:
 
-<video width="320" height="240" controls>
-  <source src="result/1.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
-
-<video width="320" height="240" controls>
-  <source src="result/2.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+1. [Video 1](result/1.mp4)
+2. [Video 2](result/2.mp4)
+3. [Video 3](result/3.mp4)
+4. [Video 4](result/4.mp4)
+5. [Video 5](result/5.mp4)
+6. [Video 6](result/6.mp4)
+7. [Video 7](result/7.mp4)
 
 ## Installation
 
