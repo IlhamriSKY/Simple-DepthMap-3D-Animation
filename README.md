@@ -1,11 +1,10 @@
-Simple DepthMap 3D Animation
-============================
+# Simple DepthMap 3D Animation
 
-This project showcases a simple depth map 3D animation, rendering videos based on depth mapping techniques. Below are the output videos of the rendered animations.
+This project demonstrates a basic depth map 3D animation, rendering videos using depth mapping techniques. Below are examples of the rendered animations.
 
-Videos
-------
-Here are the output videos of the rendered animations:
+## Videos
+
+Here are some examples of the output videos:
 
 <video width="320" height="240" controls>
   <source src="result/1.mp4" type="video/mp4">
@@ -17,32 +16,31 @@ Here are the output videos of the rendered animations:
   Your browser does not support the video tag.
 </video>
 
-Installation
-------------
+## Installation
 
-To run this project, you need to set up your environment and install the necessary dependencies.
+To set up this project, follow these steps:
 
-    # Clone the repository
+1. Clone the repository:
     ```sh
     git clone https://github.com/IlhamriSKY/Simple-DepthMap-3D-Animation.git
     ```
+
+2. Navigate to the project directory:
     ```sh
-    cd Simple-DepthMap-3D-Animation.git
+    cd Simple-DepthMap-3D-Animation
     ```
-    
-    # Install the required packages
+
+3. Install the required packages:
     ```sh
     pip install -r requirements.txt
     ```
 
-Usage
------
+## Usage
 
-After setting up the environment and installing the dependencies, you can use the application as follows:
-    
-    # Run the application
-    ```sh
-    python app.py
-    ```
+After setting up the environment and installing the dependencies, you can run the application with the following command:
+
+```sh
+python app.py
+```
 
 Follow the on-screen instructions to load an image, configure the settings, and render the animation.
