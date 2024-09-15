@@ -17,6 +17,7 @@ Here are some examples of the output videos:
 5. [Video 5](result/5.mp4)
 6. [Video 6](result/6.mp4)
 7. [Video 7](result/7.mp4)
+7. [Video 8](result/8.mp4)
 
 ## Installation
 
