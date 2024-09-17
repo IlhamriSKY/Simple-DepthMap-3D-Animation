@@ -6,12 +6,13 @@ import time
 from tkinter import Tk, filedialog, Scale, HORIZONTAL, IntVar, Canvas, Scrollbar, StringVar
 from tkinter import ttk
 from PIL import Image, ImageTk
-from torchvision.transforms import Compose
+from torchvision.transforms import Compose, Resize, ToTensor, Normalize
 from moviepy.editor import VideoClip
 from moviepy.video.io.bindings import mplfig_to_npimage
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 import matplotlib.pyplot as plt
+from u2net_model import U2NET  # Make sure u2net_model.py is in the same directory
 
 # Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,13 +45,13 @@ model_type_mapping = {
     "DPT_Large (default)": "DPT_Large",
     "DPT_Hybrid": "DPT_Hybrid",
     "MiDaS_small": "MiDaS_small",
-    "MiDaS": "MiDaS"
+    "MiDaS": "MiDaS",
+    "U2-Net": "U2-Net"
 }
 
 # Load the MiDaS transforms
 midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
 transform = midas_transforms.dpt_transform
-
 
 def load_model(model_type, progress=None):
     if progress is not None:
@@ -65,12 +66,52 @@ def load_model(model_type, progress=None):
         root.update_idletasks()
     return model
 
+def load_u2net_model(progress=None):
+    if progress is not None:
+        progress.set(0)
+        root.update_idletasks()
+    
+    # Initialize U2NET model
+    model = U2NET()  # Make sure U2NET is defined in u2net_model.py
+    # Load the state_dict into the model
+    model.load_state_dict(torch.load('models/u2net.pth', map_location=device))
+    model.to(device)
+    model.eval()
+
+    if progress is not None:
+        progress.set(100)
+        root.update_idletasks()
+    return model
+
+def generate_segmentation_map(img, progress):
+    progress.set(0)
+    root.update_idletasks()
+    
+    # Preprocess the image for U2-Net
+    transform = Compose([
+        Resize((320, 320)),
+        ToTensor(),
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    input_tensor = transform(img).unsqueeze(0).to(device)
+
+    # Predict segmentation map using U2-Net
+    with torch.no_grad():
+        prediction = app_data['u2net_model'](input_tensor)
+    
+    # U2-Net outputs multiple maps, use the most detailed output
+    segmentation_map = torch.sigmoid(prediction[0][0]).cpu().numpy()
+    segmentation_map = (segmentation_map > 0.5).astype(np.uint8)
+
+    progress.set(100)
+    root.update_idletasks()
+    
+    return segmentation_map
 
 def select_file():
     # Open file dialog
     file_path = filedialog.askopenfilename(title="Select Image File", filetypes=[("Image Files", "*.jpg;*.jpeg;*.png")])
     return file_path
-
 
 def crop_to_content(image):
     # Convert to grayscale to find contours
@@ -87,7 +128,6 @@ def crop_to_content(image):
     cropped_image = image[y:y+h, x:x+w]
 
     return cropped_image
-
 
 def generate_depth_map(img, progress):
     progress.set(0)
@@ -119,7 +159,6 @@ def generate_depth_map(img, progress):
     depth_map = prediction.cpu().numpy()
     return depth_map
 
-
 def create_layers(image, depth_map, threshold=0.5):
     # Normalize depth map to 0-1
     depth_map_norm = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())
@@ -136,6 +175,11 @@ def create_layers(image, depth_map, threshold=0.5):
 
     return foreground, background
 
+def create_layers_using_segmentation(image, segmentation_map):
+    # Separate foreground and background using the segmentation map
+    foreground = cv2.bitwise_and(image, image, mask=segmentation_map)
+    background = cv2.inpaint(image, segmentation_map, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    return foreground, background
 
 def render_video():
     if 'image' not in app_data or 'depth_map' not in app_data:
@@ -167,7 +211,6 @@ def render_video():
 
     # Set progress to 100 after completion
     progress_var.set(100)
-
 
 def create_animation(foreground, background, image_size, fps, duration, speed_multiplier, direction, 
                      input_file_name, model_type, unique_id, progress, apply_anaglyph_filter=False):
@@ -332,7 +375,6 @@ def create_animation(foreground, background, image_size, fps, duration, speed_mu
     animation = VideoClip(make_frame, duration=duration)
     animation.write_videofile(output_file_name, fps=fps, codec='libx264', bitrate="5000k")
 
-
 def start_gui():
     def load_image():
         file_path = select_file()
@@ -345,32 +387,47 @@ def start_gui():
         root.update_idletasks()
 
         # Load and crop the image
-        img = Image.open(file_path)
+        img = Image.open(file_path).convert("RGB")  # Convert to RGB if needed
         img = np.array(img)
         cropped_img = crop_to_content(img)
 
-        # Generate depth map with progress
-        depth_map = generate_depth_map(cropped_img, progress_var)
+        if model_type_var.get() == "U2-Net":
+            segmentation_map = generate_segmentation_map(cropped_img, progress_var)
+            app_data['segmentation_map'] = segmentation_map
+            foreground, background = create_layers_using_segmentation(cropped_img, segmentation_map)
+            
+            # Convert segmentation map to image for preview
+            segmentation_preview_img = Image.fromarray((segmentation_map * 255).astype(np.uint8))
+            segmentation_preview_img.thumbnail((250, 250))  # Resize for preview
+            depth_preview = ImageTk.PhotoImage(segmentation_preview_img)
+            
+            depth_label.config(image=depth_preview, text='', compound='center')
+            depth_label.image = depth_preview
+            app_data['depth_preview_img'] = segmentation_preview_img
+        else:
+            # Generate depth map with progress
+            depth_map = generate_depth_map(cropped_img, progress_var)
+            app_data['depth_map'] = depth_map
+            foreground, background = create_layers(cropped_img, depth_map)
 
-        # Update the previews
+            # Update the depth map preview
+            depth_preview_img = Image.fromarray((depth_map / depth_map.max() * 255).astype(np.uint8))
+            depth_preview_img.thumbnail((250, 250))  # Resize for preview
+            depth_preview = ImageTk.PhotoImage(depth_preview_img)
+
+            depth_label.config(image=depth_preview, text='', compound='center')
+            depth_label.image = depth_preview
+            app_data['depth_preview_img'] = depth_preview_img
+
+        # Update the original image preview
         original_preview_img = Image.fromarray(cropped_img)
         original_preview_img.thumbnail((250, 250))  # Resize for preview
         original_preview = ImageTk.PhotoImage(original_preview_img)
 
-        depth_preview_img = Image.fromarray((depth_map / depth_map.max() * 255).astype(np.uint8))
-        depth_preview_img.thumbnail((250, 250))  # Resize for preview
-        depth_preview = ImageTk.PhotoImage(depth_preview_img)
-
         original_label.config(image=original_preview, text='', compound='center')
         original_label.image = original_preview
-        depth_label.config(image=depth_preview, text='', compound='center')
-        depth_label.image = depth_preview
-
-        # Save images for later use
         app_data['image'] = cropped_img
-        app_data['depth_map'] = depth_map
         app_data['original_preview_img'] = original_preview_img
-        app_data['depth_preview_img'] = depth_preview_img
         app_data['input_file_path'] = file_path
 
         # Enable the render button after image is loaded
@@ -447,33 +504,38 @@ def start_gui():
 
     def set_model_type(selected_model_type):
         # Map displayed option to internal model_type string
-        internal_model_type = model_type_mapping[selected_model_type]
-        app_data['model_type'] = internal_model_type
+        if selected_model_type == "U2-Net":
+            app_data['u2net_model'] = load_u2net_model(progress_var)
+        else:
+            internal_model_type = model_type_mapping[selected_model_type]
+            app_data['model_type'] = internal_model_type
+            app_data['model'] = load_model(internal_model_type, progress_var)
 
         # Update the model_type variable
-        model_type_var.set(internal_model_type)
+        model_type_var.set(selected_model_type)
 
         # Show loading skeleton in depth map preview
         depth_label.config(text="Generating depth map...", image='', compound='center')
         root.update_idletasks()
 
-        # Reload the model with the new model_type
-        progress_var.set(0)
-        root.update_idletasks()
-        app_data['model'] = load_model(internal_model_type, progress_var)
+        # If U2-Net is not selected, use the default loading process
+        if selected_model_type != "U2-Net":
+            progress_var.set(0)
+            root.update_idletasks()
+            app_data['model'] = load_model(internal_model_type, progress_var)
 
-        # Regenerate the depth map if image is loaded
-        if 'image' in app_data:
-            depth_map = generate_depth_map(app_data['image'], progress_var)
-            app_data['depth_map'] = depth_map
+            # Regenerate the depth map if an image is loaded
+            if 'image' in app_data:
+                depth_map = generate_depth_map(app_data['image'], progress_var)
+                app_data['depth_map'] = depth_map
 
-            # Update the depth map preview
-            depth_preview_img = Image.fromarray((depth_map / depth_map.max() * 255).astype(np.uint8))
-            depth_preview_img.thumbnail((250, 250))  # Resize for preview
-            depth_preview = ImageTk.PhotoImage(depth_preview_img)
-            depth_label.config(image=depth_preview, text='', compound='center')
-            depth_label.image = depth_preview
-            app_data['depth_preview_img'] = depth_preview_img  # Update stored image
+                # Update the depth map preview
+                depth_preview_img = Image.fromarray((depth_map / depth_map.max() * 255).astype(np.uint8))
+                depth_preview_img.thumbnail((250, 250))  # Resize for preview
+                depth_preview = ImageTk.PhotoImage(depth_preview_img)
+                depth_label.config(image=depth_preview, text='', compound='center')
+                depth_label.image = depth_preview
+                app_data['depth_preview_img'] = depth_preview_img  # Update stored image
 
         # Update button styles to indicate selected model type
         for btn in model_type_buttons:
@@ -656,7 +718,6 @@ def start_gui():
     progress_bar.pack(fill='x', expand=True)
 
     root.mainloop()
-
 
 if __name__ == "__main__":
     start_gui()
