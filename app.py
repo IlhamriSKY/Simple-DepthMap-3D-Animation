@@ -137,8 +137,40 @@ def create_layers(image, depth_map, threshold=0.5):
     return foreground, background
 
 
+def render_video():
+    if 'image' not in app_data or 'depth_map' not in app_data:
+        return
+
+    # Get user settings
+    fps = fps_var.get()
+    duration = duration_var.get()
+    speed_multiplier = speed_var.get()
+    direction = direction_var.get()
+    model_type = app_data['model_type']
+    apply_anaglyph = anaglyph_var.get()
+
+    # Get the name of the input file without the extension
+    input_file_name = os.path.splitext(os.path.basename(app_data['input_file_path']))[0]
+
+    # Create a unique identifier using the current timestamp
+    unique_id = int(time.time())
+
+    # Reset progress
+    progress_var.set(0)
+
+    # Create layers and render video with progress
+    foreground, background = create_layers(app_data['image'], app_data['depth_map'])
+    
+    # Pass the file name and other parameters to create_animation
+    create_animation(foreground, background, app_data['image'].shape[:2], fps, duration, speed_multiplier, direction, 
+                     input_file_name, model_type, unique_id, progress_var, apply_anaglyph)
+
+    # Set progress to 100 after completion
+    progress_var.set(100)
+
+
 def create_animation(foreground, background, image_size, fps, duration, speed_multiplier, direction, 
-                     input_file_name, model_type, unique_id, progress):
+                     input_file_name, model_type, unique_id, progress, apply_anaglyph_filter=False):
     fig, ax = plt.subplots(figsize=(image_size[1] / 100, image_size[0] / 100), dpi=100)
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
@@ -257,6 +289,21 @@ def create_animation(foreground, background, image_size, fps, duration, speed_mu
             M_background = np.float32([[1, 0, -shift_x / 2], [0, 1, -shift_y / 2]])
             shifted_background = cv2.warpAffine(background, M_background, (background.shape[1], background.shape[0]))
 
+        # Apply anaglyph filter if enabled
+        if apply_anaglyph_filter:
+            shift_amount = 5  # Define a small shift amount for the 3D effect
+            anaglyph_foreground = np.zeros_like(shifted_foreground)
+
+            # Create the red-cyan anaglyph effect
+            # Left image (red channel)
+            anaglyph_foreground[:, :, 0] = np.roll(shifted_foreground[:, :, 0], shift_amount, axis=1)
+
+            # Right image (cyan channel)
+            anaglyph_foreground[:, :, 1] = np.roll(shifted_foreground[:, :, 1], -shift_amount, axis=1)
+            anaglyph_foreground[:, :, 2] = np.roll(shifted_foreground[:, :, 2], -shift_amount, axis=1)
+
+            shifted_foreground = anaglyph_foreground
+
         # Ensure foreground remains opaque
         combined = shifted_background.copy()
         foreground_indices = shifted_foreground > 0
@@ -353,6 +400,7 @@ def start_gui():
         speed_multiplier = speed_var.get()
         direction = direction_var.get()
         model_type = app_data['model_type']
+        apply_anaglyph = anaglyph_var.get()
 
         # Get the name of the input file without the extension
         input_file_name = os.path.splitext(os.path.basename(app_data['input_file_path']))[0]
@@ -368,7 +416,7 @@ def start_gui():
         
         # Pass the file name and other parameters to create_animation
         create_animation(foreground, background, app_data['image'].shape[:2], fps, duration, speed_multiplier, direction, 
-                         input_file_name, model_type, unique_id, progress_var)
+                         input_file_name, model_type, unique_id, progress_var, apply_anaglyph)
 
         # Set progress to 100 after completion
         progress_var.set(100)
@@ -535,7 +583,7 @@ def start_gui():
     settings_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nsew")
     settings_frame.grid_columnconfigure(1, weight=1)
     settings_frame.grid_columnconfigure(2, weight=0)
-    settings_frame.grid_rowconfigure(4, weight=1)  # For direction buttons
+    settings_frame.grid_rowconfigure(5, weight=1)  # For direction buttons
 
     # FPS setting
     fps_var = IntVar(value=60)
@@ -592,6 +640,11 @@ def start_gui():
     # Set default direction
     set_direction("Horizontal")
 
+    # Anaglyph filter option
+    anaglyph_var = IntVar()
+    anaglyph_checkbox = ttkb.Checkbutton(settings_frame, text="Apply Anaglyph Filter", variable=anaglyph_var)
+    anaglyph_checkbox.grid(row=5, column=0, columnspan=3, padx=5, pady=5, sticky='w')
+
     # Render video button (disabled by default)
     render_button = ttkb.Button(main_frame, text="Render Video", command=render_video, bootstyle="success", state='disabled')
     render_button.grid(row=5, column=0, padx=10, pady=10, sticky="ew")
@@ -603,6 +656,7 @@ def start_gui():
     progress_bar.pack(fill='x', expand=True)
 
     root.mainloop()
+
 
 if __name__ == "__main__":
     start_gui()
